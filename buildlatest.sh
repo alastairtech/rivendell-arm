@@ -45,7 +45,7 @@ list_releases() {
 # Function to download a release
 download_release() {
     echo "Downloading release $2..."
-    curl -L "https://github.com/ElvishArtisan/rivendell/archive/$2.tar.gz" -o "$2.tar.gz"
+    curl -L "https://github.com/ElvishArtisan/rivendell/archive/$2.tar.gz" -o /opt/"$2.tar.gz"
     echo "Release $2 downloaded successfully."
 }
 
@@ -65,10 +65,10 @@ release_name=$(curl -s "https://api.github.com/repos/ElvishArtisan/rivendell/tag
 download_release "ElvishArtisan/rivendell" "$release_name"
 
 echo ; echo -e "${RED}Extracting latest release${NC}" ; echo
-mkdir /home/"${SUDO_USER}"/rivendell-"${release_name}"
-tar -xf /home/"${SUDO_USER}"/"$release_name".tar.gz -C /home/"${SUDO_USER}"/rivendell-"${release_name}" --strip-components=1
+mkdir "/opt/"/rivendell-"${release_name}"
+tar -xf /opt/"$release_name".tar.gz -C /opt/rivendell-"${release_name}" --strip-components=1
 
-cd rivendell-"${release_name}"
+cd /opt/rivendell-"${release_name}"
 
 echo ; echo -e "${RED}Autogen Components${NC}" ; echo
 ./autogen.sh
