@@ -41,8 +41,29 @@ chmod +x install.sh
 sudo ./install.sh
 ```
 
-# Upgrade Script
-Coming soon...
+# Holding A Rivendell Version
+If you plan to use Rivendell in a production situation you should consider holding the installed packages from being upgraded during any system update. The means you'll stay on your chosen Rivendell version until you're ready to upgrade while the rest of your system can recieve security updates. Follow the commands below to hold your Rivendell packages.
+
+```bash
+# Hold your currently installed packages
+sudo apt-mark hold rivendell*
+```
+```bash
+# To release the hold on your installed packages so they can be upgraded
+sudo apt-mark unhold rivendell*
+```
+
+# Upgrading Your System
+Upgrading your Rivendell install can be done via the Debian package manager. Run the following commands to upgrade
+
+```bash
+# Pull the latest packages
+sudo apt update
+```
+```bash
+# Upgrade all Rivendell related packages
+sudo apt upgrade rivendell*
+```
 
 # Debian Package Repository
 The Rivendell 4 Debian package repository is avaliable using the details below to add to your system.
