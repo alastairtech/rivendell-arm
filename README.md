@@ -42,7 +42,7 @@ sudo ./install.sh
 ```
 
 # Holding A Rivendell Version
-If you plan to use Rivendell in a production situation you should consider holding the installed packages from being upgraded during any system update. The means you'll stay on your chosen Rivendell version until you're ready to upgrade while the rest of your system can recieve security updates. Follow the commands below to hold your Rivendell packages.
+If you plan to use Rivendell in a production situation you should consider holding the installed packages from being upgraded during any system update. This means you'll stay on your currently install Rivendell version until you're ready to upgrade. The rest of your system will be able recieve package and security updates. Follow the commands below to hold your Rivendell packages.
 
 ```bash
 # Hold the currently installed packages
@@ -68,6 +68,8 @@ sudo apt upgrade rivendell*
 # Upgrade to the latest database version
 sudo rddbmgr --modify
 ```
+# Experimental Web Administration Interface Install Script
+Coming soon...
 
 # Debian Package Repository
 The Rivendell 4 Debian package repository is avaliable using the details below to add to your system.
