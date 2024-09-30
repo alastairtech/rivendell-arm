@@ -10,7 +10,7 @@ sudo apt install curl
 ```
 ```bash
 # Download the build script
-curl -o buildlatest.sh https://raw.githubusercontent.com/alastairtech/rivendell-arm/blob/main/buildlatest.sh
+curl -o buildlatest.sh https://raw.githubusercontent.com/alastairtech/rivendell-arm/refs/heads/main/buildlatest.sh
 ```
 ```
 # Make the build script executable
@@ -30,7 +30,7 @@ sudo apt install curl
 ```
 ```bash
 # Download the install script
-curl -o install.sh https://raw.githubusercontent.com/alastairtech/rivendell-arm/blob/main/install.sh
+curl -o install.sh https://raw.githubusercontent.com/alastairtech/rivendell-arm/refs/heads/main/install.sh
 ```
 ```
 # Make the install script executable
