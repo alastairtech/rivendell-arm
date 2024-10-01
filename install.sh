@@ -44,7 +44,7 @@ echo ; echo "We need to download and install some packages before Rivendell. Thi
 # Debian multimedia repository
 echo ; echo "Adding Debian Multimedia repository to your system..." ; echo
 
-if grep -R -q "deb http://deb-multimedia.org bullseye main non-free" "/etc/apt/sources.list"
+if grep -R -q "deb http://deb-multimedia.org bookworm main non-free" "/etc/apt/sources.list"
   then
     echo "Reopsitory already added. Skipping..."
   else
