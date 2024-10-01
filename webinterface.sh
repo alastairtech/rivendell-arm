@@ -78,7 +78,7 @@ install_software() {
   sed -i '/<Directory \/var\/www\/>/,/<\/Directory>/s/AllowOverride None/AllowOverride All/' /etc/apache2/apache2.conf
   apt-get install php php-{common,mysql,xml,xmlrpc,curl,gd,imagick,cli,dev,imap,mbstring,opcache,soap,zip,intl,pdo} -y
   systemctl restart apache2
-  apt-get install ffmpeg
+  apt-get install ffmpeg -y
   cd /var/www/html
   mv index.html index.html.old
   download_release
