@@ -74,18 +74,18 @@ Coming soon...
 # Debian Package Repository
 The Rivendell 4 Debian package repository is avaliable using the details below to add to your system.
 
+#### This repository is for ARM64 based systems. Use this if you're running a Raspberry Pi.
 ```bash
-# This repository is for ARM64 based systems. Use this if you're running a Raspberry Pi.
 apt update && apt install -y curl gnupg
 curl https://repo.edgeradio.org.au/rivendell-aarch64/public.gpg | gpg --yes --dearmor -o /usr/share/keyrings/openrepo-rivendell-aarch64.gpg
 echo "deb [arch=any signed-by=/usr/share/keyrings/openrepo-rivendell-aarch64.gpg] https://repo.edgeradio.org.au/rivendell-aarch64/ stable main" > /etc/apt/sources.list.d/openrepo-rivendell-aarch64.list
 apt update
 ```
+#### This repository is for AMD64 based systems. Use this if you're using an Intel or AMD based system.
 ```bash
-# This repository is for AMD64 based systems. Use this if you're using an Intel or AMD based system.
 apt update && apt install -y curl gnupg
-curl https://repo.edgeradio.org.au/rivendell-arm/public.gpg | gpg --yes --dearmor -o /usr/share/keyrings/openrepo-rivendell-arm.gpg
-echo "deb [arch=any signed-by=/usr/share/keyrings/openrepo-rivendell-arm.gpg] https://repo.edgeradio.org.au/rivendell-arm/ stable main" > /etc/apt/sources.list.d/openrepo-rivendell-arm.list
+curl https://repo.edgeradio.org.au/rivendell-amd64/public.gpg | gpg --yes --dearmor -o /usr/share/keyrings/openrepo-rivendell-amd64.gpg
+echo "deb [arch=any signed-by=/usr/share/keyrings/openrepo-rivendell-amd64.gpg] https://repo.edgeradio.org.au/rivendell-amd64/ stable main" > /etc/apt/sources.list.d/openrepo-rivendell-amd64.list
 apt update
 ```
 
