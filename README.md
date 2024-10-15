@@ -2,7 +2,7 @@
 Welcome to the Rivendell Radio Automation Suite for ARM Devices repository. Here you will find the latest build, install and upgrade scripts and instructions. 
 
 # Build Script
-The buildlatest.sh script is an automated build system that generates Debian packages. When running the script it will install all the required packages and ask you which version of Rivendell you wish to build. It will also install the Debian Multimedia Repository to be able to use the latest audio codec packages during the build.
+The buildlatest.sh script is an automated build system that generates Debian packages. It does not install or setup Rivendell. When running the script it will install all the required packages and ask you which version of Rivendell you wish to build. It will also install the Debian Multimedia Repository to be able to use the latest audio codec packages during the build.
 
 ```bash
 # Make sure curl is installed
