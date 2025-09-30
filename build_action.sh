@@ -1,6 +1,7 @@
 #!/bin/bash
 
 set -e
+export DEBIAN_FRONTEND=noninteractive
 
 # Check if script is running as the root user
 if [ "$(id -u)" -ne 0 ]; then
@@ -31,7 +32,8 @@ echo ; echo -e "${RED}Upgrading Packages${NC}" ; echo
 apt-get upgrade -y
 
 echo ; echo -e "${RED}Installing any build packages required${NC}" ; echo
-echo 'MIRRORSITE="http://deb.debian.org/debian"' > /root/.pbuilderrc
+export DEBIAN_FRONTEND=noninteractive
+echo "pbuilder pbuilder/mirror site http://deb.debian.org/debian" | debconf-set-selections
 apt-get install -y rsync apache2 build-essential libexpat1-dev libexpat1 libid3-dev libcurl4-gnutls-dev libcoverart-dev libdiscid-dev libmusicbrainz5-dev libcdparanoia-dev libsndfile1-dev libpam0g-dev libvorbis-dev python3 python3-pycurl python3-pymysql python3-serial python3-requests libsamplerate0-dev qtbase5-dev libqt5sql5-mysql libqt5webkit5-dev libsoundtouch-dev libsystemd-dev libjack-jackd2-dev libasound2-dev libflac-dev libflac++-dev libmp3lame-dev libmad0-dev libtwolame-dev docbook5-xml libxml2-utils docbook-xsl-ns xsltproc fop make g++ libltdl-dev autoconf automake libssl-dev libtag1-dev qttools5-dev-tools debhelper openssh-server autoconf-archive gnupg pbuilder ubuntu-dev-tools apt-file libmagick++-dev jq
 
 # Get the latest release name
@@ -64,5 +66,5 @@ echo ; echo -e "${RED}BUILDING RIVENDELL ${release_name}${NC}" ; echo
 make -j$(nproc)
 
 echo ; echo -e "${RED}BUILDING RIVENDELL ${release_name} PACKAGES${NC}" ; echo
-debuild -us -uc -nc -b -p pbuilder --pbuilder-options "--configfile /root/.pbuilderrc"
+debuild -us -uc -nc -b
 
