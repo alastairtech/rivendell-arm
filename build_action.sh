@@ -66,5 +66,5 @@ echo ; echo -e "${RED}BUILDING RIVENDELL ${release_name}${NC}" ; echo
 make -j$(nproc)
 
 echo ; echo -e "${RED}BUILDING RIVENDELL ${release_name} PACKAGES${NC}" ; echo
-debuild -us -uc -nc -b
+pdebuild
 
