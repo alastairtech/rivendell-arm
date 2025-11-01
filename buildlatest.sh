@@ -24,7 +24,7 @@ if grep -R -q "deb http://deb-multimedia.org bookworm main non-free" "/etc/apt/s
   then
     echo -e "${RED}Reopsitory already added. Skipping...${NC}"
   else
-    cd ~ && wget http://www.deb-multimedia.org/pool/main/d/deb-multimedia-keyring/deb-multimedia-keyring_2016.8.1_all.deb && sudo sudo dpkg -i deb-multimedia-keyring_2016.8.1_all.deb && rm -r deb-multimedia-keyring_2016.8.1_all.deb && sudo echo "deb http://deb-multimedia.org bookworm main non-free" |sudo tee -a /etc/apt/sources.list
+    cd ~ && wget http://www.deb-multimedia.org/pool/main/d/deb-multimedia-keyring/deb-multimedia-keyring_2024.9.1_all.deb && sudo sudo dpkg -i deb-multimedia-keyring_2024.9.1_all.deb && rm -r deb-multimedia-keyring_2024.9.1_all.deb && sudo echo "deb http://deb-multimedia.org bookworm main non-free" |sudo tee -a /etc/apt/sources.list
 fi
 
 echo ; echo -e "${RED}Updating Packages${NC}" ; echo
