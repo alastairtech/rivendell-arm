@@ -3,7 +3,7 @@
 # Requirements: bash 4+, gum (auto-installed if absent), root/sudo
 # Install: sudo cp rivendell-config.sh /usr/local/bin/rivendell-config && chmod +x /usr/local/bin/rivendell-config
 
-SCRIPT_VERSION="1.1.0"
+SCRIPT_VERSION="1.2.0"
 
 RD_CONF="/etc/rd.conf"
 RD_SERVICE="rivendell"
@@ -2145,6 +2145,33 @@ action_db_repair() {
     fi
 }
 
+action_install_as_command() {
+    header "Install Rivendell Config as a System Command"
+
+    local target="/usr/local/bin/rivendell-config"
+    local self_path
+    self_path=$(readlink -f "$0")
+
+    if [ "$self_path" = "$target" ]; then
+        msg_info "Already running as $target."
+        press_enter
+        return 0
+    fi
+
+    if [ -e "$target" ]; then
+        gum confirm "$target already exists — overwrite it with this script?" || return 0
+    else
+        gum confirm "Install this script to '$target' so it can be run as 'rivendell-config'?" || return 0
+    fi
+
+    if cp "$self_path" "$target" && chmod +x "$target"; then
+        msg_success "Installed — you can now run it with: sudo rivendell-config"
+    else
+        msg_error "Failed to install to $target"
+    fi
+    press_enter
+}
+
 # ── Main menu loop ───────────────────────────────────────────────────────────
 
 run_main_menu() {
@@ -2166,6 +2193,7 @@ run_main_menu() {
             "Hold / Unhold packages" \
             "Build packages" \
             "Uninstall Rivendell" \
+            "Install Rivendell Config on System" \
             "Exit") || choice="Exit"
 
         case "$choice" in
@@ -2179,6 +2207,7 @@ run_main_menu() {
             "Hold / Unhold packages")          action_hold_packages ;;
             "Build packages")                  action_build_packages ;;
             "Uninstall Rivendell")             action_uninstall ;;
+            "Install Rivendell Config on System") action_install_as_command ;;
             "Exit")
                 echo
                 msg_info "Goodbye."
