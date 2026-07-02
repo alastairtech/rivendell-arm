@@ -3,13 +3,14 @@
 # Requirements: bash 4+, gum (auto-installed if absent), root/sudo
 # Install: sudo cp rivendell-config.sh /usr/local/bin/rivendell-config && chmod +x /usr/local/bin/rivendell-config
 
-SCRIPT_VERSION="1.0.0"
+SCRIPT_VERSION="1.1.0"
 
 RD_CONF="/etc/rd.conf"
 RD_SERVICE="rivendell"
 RD_DEFAULT_AUDIO_DIR="/var/snd"
 RD_CONF_SAMPLE_URL="https://raw.githubusercontent.com/edgeradio993fm/rivendell/master/conf/rd.conf-sample"
 DEB_MULTIMEDIA_KEYRING_URL="http://www.deb-multimedia.org/pool/main/d/deb-multimedia-keyring/deb-multimedia-keyring_2024.9.1_all.deb"
+RD_CONFIG_UPDATE_URL="https://raw.githubusercontent.com/alastairtech/rivendell-arm/refs/heads/main/rivendell-config.sh"
 
 # Detect CPU architecture and select the matching Rivendell repo.
 # edgeradio.org.au hosts separate repos for aarch64 (Raspberry Pi / ARM64)
@@ -199,6 +200,25 @@ rdconf_set() {
             if (!seen_section) { print ""; print s; print k"="v }
         }
     ' "$RD_CONF" > "${RD_CONF}.tmp" && mv "${RD_CONF}.tmp" "$RD_CONF"
+}
+
+# ── Rivendell DB helpers ─────────────────────────────────────────────────────
+# Rivendell doesn't keep per-card audio settings in rd.conf — caed auto-detects
+# ALSA/JACK/HPi hardware at startup and records it in the database. The bits an
+# admin actually sets (whether caed should launch jackd, its server name and
+# command line) live in STATIONS; auxiliary programs to run alongside jackd
+# (our port-connection script) go in JACK_CLIENTS. These helpers read the DB
+# connection details straight from rd.conf's [mySQL] section to reach it.
+
+_sql_escape() { printf '%s' "$1" | sed "s/'/''/g"; }
+
+_rd_mysql() {
+    local host user pass db
+    host=$(rdconf_get "mySQL" "Hostname")
+    user=$(rdconf_get "mySQL" "Loginname")
+    pass=$(rdconf_get "mySQL" "Password")
+    db=$(rdconf_get "mySQL" "Database")
+    mysql -N -B -h "$host" -u "$user" -p"$pass" "$db" -e "$1" 2>/dev/null
 }
 
 # ── Detection helpers ────────────────────────────────────────────────────────
@@ -620,10 +640,53 @@ configure_database_interactive() {
     SUMMARY_DB="${db_user}@${db_host}:${db_port}/${db_name}"
 }
 
-# ── Audio card setup (ALSA/JACK) ─────────────────────────────────────────────
+# ── Audio card setup (JACK) ───────────────────────────────────────────────────
+# Configures caed to launch jackd itself (STATIONS.START_JACK/JACK_SERVER_NAME/
+# JACK_COMMAND_LINE) and registers a port-connection script as a JACK_CLIENTS
+# entry, so caed launches it alongside jackd on every start. Requires a working
+# Rivendell database connection — this can't be set via rd.conf.
 
 setup_audio_cards_interactive() {
-    header "Audio Card Setup"
+    header "Audio Card Setup (JACK)"
+
+    if ! command -v mysql &>/dev/null; then
+        msg_error "The 'mysql' client is required to configure audio via the database."
+        press_enter
+        return 1
+    fi
+
+    # Normally already installed alongside Rivendell (see _ensure_jackd_installed);
+    # this is a fallback for hosts set up before that was added.
+    if ! command -v jackd &>/dev/null; then
+        if ! _ensure_jackd_installed || ! command -v jackd &>/dev/null; then
+            msg_error "Failed to install jackd2 (the JACK server)."
+            press_enter
+            return 1
+        fi
+    fi
+
+    if ! _rd_mysql "SELECT 1;" >/dev/null; then
+        msg_error "Could not connect to the Rivendell database — set it up first (Database Setup)."
+        press_enter
+        return 1
+    fi
+
+    # Match this machine to its Rivendell STATIONS row.
+    local host_name station_name stations
+    host_name=$(hostname)
+    stations=$(_rd_mysql "SELECT NAME FROM STATIONS;")
+    if [ -z "$stations" ]; then
+        msg_error "No hosts found in the STATIONS table — add this host in RDAdmin first."
+        press_enter
+        return 1
+    fi
+    if printf '%s\n' "$stations" | grep -qx "$host_name"; then
+        station_name="$host_name"
+    else
+        msg_warn "No STATIONS row named '$host_name' — pick this host's entry:"
+        station_name=$(printf '%s\n' "$stations" | gum choose --header "Rivendell host:") || return 0
+    fi
+    [ -z "$station_name" ] && return 0
 
     # Parse aplay -l into "hw:CARD,DEV  (Name)" lines
     local devices
@@ -646,38 +709,45 @@ setup_audio_cards_interactive() {
     echo "$devices" | while IFS= read -r d; do msg_info "$d"; done
     echo
 
-    local card0 card1="(none)"
+    local device hw
+    device=$(printf '%s\n' "$devices" | gum choose \
+        --header "Select the ALSA device for jackd to drive:") || return 0
+    hw=$(echo "$device" | awk '{print $1}')
 
-    card0=$(printf '%s\n' "$devices" | gum choose \
-        --header "Select device for Rivendell Card 0 (primary output):") || return 0
+    local jack_name rate period nperiods
+    jack_name=$(gum input --value "default" --header "JACK server name:") || return 0
+    [ -z "$jack_name" ] && jack_name="default"
+    rate=$(gum input --value "48000" --header "Sample rate:") || return 0
+    [ -z "$rate" ] && rate="48000"
+    period=$(gum input --value "1024" --header "Period size (-p):") || return 0
+    [ -z "$period" ] && period="1024"
+    nperiods=$(gum input --value "2" --header "Number of periods (-n):") || return 0
+    [ -z "$nperiods" ] && nperiods="2"
 
-    if gum confirm "Configure a second audio card (Card 1)?"; then
-        card1=$(printf '%s\n' "$devices" | gum choose \
-            --header "Select device for Rivendell Card 1:") || card1="(none)"
+    local jack_cmd="/usr/bin/jackd --name ${jack_name} -d alsa -P ${hw} -r ${rate} -p ${period} -n ${nperiods}"
+
+    echo
+    gum style --foreground "$C_ACCENT" --bold "Will apply to host '$station_name':"
+    msg_info "$jack_cmd"
+    echo
+
+    gum confirm "Apply this JACK configuration?" || return 0
+
+    local esc_name esc_cmd esc_station
+    esc_name=$(_sql_escape "$jack_name")
+    esc_cmd=$(_sql_escape "$jack_cmd")
+    esc_station=$(_sql_escape "$station_name")
+
+    if _rd_mysql "UPDATE STATIONS SET START_JACK='Y', JACK_SERVER_NAME='${esc_name}', JACK_COMMAND_LINE='${esc_cmd}' WHERE NAME='${esc_station}';"; then
+        msg_success "JACK settings saved to the Rivendell database."
+    else
+        msg_error "Failed to update the STATIONS table."
+        press_enter
+        return 1
     fi
 
-    local hw0 hw1
-    hw0=$(echo "$card0" | awk '{print $1}')
-    hw1=$(echo "$card1" | awk '{print $1}')
-
-    echo
-    gum style --foreground "$C_ACCENT" --bold "Selection:"
-    msg_info "Card 0: $hw0"
-    [ "$card1" != "(none)" ] && msg_info "Card 1: $hw1"
-    echo
-
-    gum confirm "Apply audio card settings?" || return 0
-
-    if [ -f "$RD_CONF" ]; then
-        if grep -q "^\[AudioCard0\]" "$RD_CONF" 2>/dev/null; then
-            rdconf_set "AudioCard0" "AlsaDevice" "$hw0"
-            [ "$card1" != "(none)" ] && rdconf_set "AudioCard1" "AlsaDevice" "$hw1"
-            msg_success "Audio card settings written to $RD_CONF"
-        else
-            msg_warn "rd.conf does not have an [AudioCard0] section."
-            msg_info "Use RdAdmin → Workstation → Audio Resources to assign cards."
-            msg_info "Your selection — Card 0: $hw0${card1:+ | Card 1: $hw1}"
-        fi
+    if gum confirm "Install a JACK auto-connect script for Rivendell's I/O ports?"; then
+        _setup_jack_connect_script "$station_name"
     fi
 
     if gum confirm "Restart Rivendell to apply?"; then
@@ -688,6 +758,63 @@ setup_audio_cards_interactive() {
             msg_error "Restart failed — check: journalctl -u $RD_SERVICE"
         fi
     fi
+}
+
+# Writes /usr/local/bin/rivendell-jack-connect.sh, wiring Rivendell's JACK
+# ports (rivendell_<N>:record_*/playout_*) to the system capture/playback
+# ports, then registers it in JACK_CLIENTS so caed launches it whenever it
+# starts jackd — no separate systemd unit or cron entry needed.
+_setup_jack_connect_script() {
+    local station_name="$1" card_num
+    card_num=$(gum input --value "0" --header "Rivendell card number (rivendell_N JACK client):") || card_num="0"
+    [ -z "$card_num" ] && card_num="0"
+
+    local script_path="/usr/local/bin/rivendell-jack-connect.sh"
+    cat > "$script_path" <<EOF
+#!/bin/bash
+# Connects Rivendell's JACK ports to the system's hardware ports.
+# Installed/updated by rivendell-config.sh — edit or replace as needed.
+
+# Give JACK and Rivendell a few seconds to initialize if running this at startup
+sleep 7
+
+# --- 1. Connect System Inputs to Rivendell Record ---
+jack_connect system:capture_1 rivendell_${card_num}:record_0L
+jack_connect system:capture_2 rivendell_${card_num}:record_0R
+
+# --- 2. Connect Rivendell Playout to System Outputs ---
+jack_connect rivendell_${card_num}:playout_0L system:playback_1
+jack_connect rivendell_${card_num}:playout_1L system:playback_1
+jack_connect rivendell_${card_num}:playout_0R system:playback_2
+jack_connect rivendell_${card_num}:playout_1R system:playback_2
+
+echo "Rivendell JACK connections established."
+EOF
+    chmod +x "$script_path"
+    msg_success "Wrote $script_path"
+
+    local esc_station esc_path
+    esc_station=$(_sql_escape "$station_name")
+    esc_path=$(_sql_escape "$script_path")
+    _rd_mysql "DELETE FROM JACK_CLIENTS WHERE STATION_NAME='${esc_station}' AND COMMAND_LINE='${esc_path}';"
+    if _rd_mysql "INSERT INTO JACK_CLIENTS (STATION_NAME, DESCRIPTION, COMMAND_LINE) VALUES ('${esc_station}', 'Auto-connect script', '${esc_path}');"; then
+        msg_success "Registered as a JACK client for '$station_name' — caed will launch it whenever JACK starts."
+    else
+        msg_error "Failed to register the script in JACK_CLIENTS."
+    fi
+}
+
+# ── JACK server ──────────────────────────────────────────────────────────────
+# The rivendell package only depends on libjack-jackd2-0 (the client library,
+# needed to link against libjack) — jackd2, which provides the actual
+# /usr/bin/jackd server binary the JACK driver needs at runtime, is a separate
+# package apt never pulls in on its own. Install it alongside Rivendell so
+# JACK works out of the box instead of failing silently later at "caed:
+# failed to start JACK server".
+_ensure_jackd_installed() {
+    command -v jackd &>/dev/null && return 0
+    _cmd_with_progress "Installing JACK server (jackd2)" 30 \
+        env DEBIAN_FRONTEND=noninteractive apt-get install -y jackd2
 }
 
 # ── Rivendell repo helpers ───────────────────────────────────────────────────
@@ -856,6 +983,8 @@ _install_rivendell_packages() {
             _rd_repo_install "$version_choice" || return 1
             ;;
     esac
+
+    _ensure_jackd_installed
 
     # Restart (not just "start") so a reinstall/upgrade actually picks up the new
     # binaries instead of leaving whatever was already running in place.
@@ -1068,6 +1197,9 @@ run_installer() {
             _rd_repo_install "$_install_version" || exit 1
             ;;
     esac
+
+    _ensure_jackd_installed
+
     gum spin --title "Refreshing shared libraries..." -- ldconfig
 
     if [ ! -f "$RD_CONF" ]; then
@@ -1223,6 +1355,7 @@ action_upgrade() {
     export DEBIAN_FRONTEND=noninteractive
     _cmd_with_progress "Updating package lists" 20 apt-get update
     _cmd_with_progress "Upgrading Rivendell" 60 apt-get install --only-upgrade -y rivendell
+    _ensure_jackd_installed
 
     local new_ver
     new_ver=$(dpkg -s rivendell 2>/dev/null | awk '/^Version:/{print $2}')
@@ -2029,7 +2162,7 @@ run_main_menu() {
             "Configure audio store" \
             "Restart Rivendell service" \
             "Run database repair / check" \
-            "Setup audio cards (ALSA/JACK)" \
+            "Setup audio cards" \
             "Hold / Unhold packages" \
             "Build packages" \
             "Uninstall Rivendell" \
@@ -2042,7 +2175,7 @@ run_main_menu() {
             "Configure audio store")           configure_audio_storage_interactive ;;
             "Restart Rivendell service")       action_restart_service ;;
             "Run database repair / check")     action_db_repair ;;
-            "Setup audio cards (ALSA/JACK)")   setup_audio_cards_interactive ;;
+            "Setup audio cards")                setup_audio_cards_interactive ;;
             "Hold / Unhold packages")          action_hold_packages ;;
             "Build packages")                  action_build_packages ;;
             "Uninstall Rivendell")             action_uninstall ;;
@@ -2058,11 +2191,57 @@ run_main_menu() {
     done
 }
 
+# ── Self-update ──────────────────────────────────────────────────────────────
+# Echoes "0" (true) if $1 is a strictly greater dotted-numeric version than $2.
+_version_gt() {
+    [ "$1" = "$2" ] && return 1
+    [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -1)" = "$1" ]
+}
+
+check_for_update() {
+    local remote_file
+    remote_file=$(mktemp)
+    gum spin --title "Checking for updates..." -- \
+        curl -fsSL --max-time 5 "$RD_CONFIG_UPDATE_URL" -o "$remote_file"
+
+    if [ ! -s "$remote_file" ]; then
+        rm -f "$remote_file"
+        return 0
+    fi
+
+    local remote_version
+    remote_version=$(grep -m1 '^SCRIPT_VERSION=' "$remote_file" | cut -d'"' -f2)
+    if [ -z "$remote_version" ] || ! _version_gt "$remote_version" "$SCRIPT_VERSION"; then
+        rm -f "$remote_file"
+        return 0
+    fi
+
+    echo
+    gum style --foreground "$C_ACCENT" --bold \
+        "A newer version is available: v${SCRIPT_VERSION} → v${remote_version}"
+    if gum confirm "Update now?"; then
+        local self_path
+        self_path=$(readlink -f "$0")
+        if cp "$remote_file" "${self_path}.new" \
+                && chmod --reference="$self_path" "${self_path}.new" \
+                && mv "${self_path}.new" "$self_path"; then
+            rm -f "$remote_file"
+            msg_success "Updated to v${remote_version}. Restarting..."
+            exec "$self_path" "$@"
+        else
+            msg_error "Failed to write update to $self_path"
+            press_enter
+        fi
+    fi
+    rm -f "$remote_file"
+}
+
 # ── Entry point ──────────────────────────────────────────────────────────────
 
 main() {
     check_root
     ensure_gum
+    check_for_update "$@"
     check_os_compat
 
     if is_rivendell_installed; then
