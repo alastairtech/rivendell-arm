@@ -236,6 +236,45 @@ _deb_suite() {
     grep ^VERSION_CODENAME /etc/os-release 2>/dev/null | cut -d= -f2
 }
 
+# Adds/repairs the Debian Multimedia (deb-multimedia.org) apt repo + keyring.
+# Self-healing: a prior run may have appended the sources.list entry but had
+# the keyring wget/dpkg step fail (network blip, etc.) without noticing, since
+# the old code had no error checking there. That leaves apt permanently unable
+# to verify the repo while looking "already configured" on every later run
+# (only the sources.list line was ever checked). Checking dpkg's record of the
+# keyring package itself, not just the sources.list line, catches that case
+# and re-runs the keyring install.
+_ensure_deb_multimedia_repo() {
+    local _suite
+    _suite=$(_deb_suite)
+
+    if grep -rq "deb http://deb-multimedia.org" /etc/apt/sources.list \
+            /etc/apt/sources.list.d/ 2>/dev/null; then
+        if ! grep -rq "deb http://deb-multimedia.org ${_suite}" /etc/apt/sources.list \
+                /etc/apt/sources.list.d/ 2>/dev/null; then
+            msg_warn "deb-multimedia repo is configured for a different suite — updating to ${_suite}."
+            sed -i "s|deb http://deb-multimedia.org [a-z]* main|deb http://deb-multimedia.org ${_suite} main|g" \
+                /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null || true
+        fi
+        if pkg_installed deb-multimedia-keyring; then
+            msg_info "Debian Multimedia repository (${_suite}) already configured."
+            return 0
+        fi
+        msg_warn "deb-multimedia repo entry exists but its keyring isn't installed — repairing."
+    fi
+
+    _cmd_with_progress "Adding Debian Multimedia repository (${_suite})" 30 \
+        bash -c "
+            set -e
+            cd /tmp
+            wget -q '${DEB_MULTIMEDIA_KEYRING_URL}' -O deb-multimedia-keyring.deb
+            dpkg -i deb-multimedia-keyring.deb
+            rm -f deb-multimedia-keyring.deb
+            grep -rq 'deb http://deb-multimedia.org' /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null || \
+                echo 'deb http://deb-multimedia.org ${_suite} main non-free' >> /etc/apt/sources.list
+        "
+}
+
 # Sets OS_COMPAT_WARN if the host OS has known issues with the Rivendell repo.
 # Debian 13 dropped ImageMagick 6 entirely; the pre-built packages from the older,
 # per-architecture repos (rivendell-aarch64/-amd64) depend on it, so apt will refuse
@@ -1039,21 +1078,7 @@ run_installer() {
     # ── Step 1: Repositories ─────────────────────────────────────────────────
     header "Step 1 of 4 — Package Repositories"
 
-    if grep -rq "deb http://deb-multimedia.org" /etc/apt/sources.list \
-            /etc/apt/sources.list.d/ 2>/dev/null; then
-        msg_info "Debian Multimedia repository already configured."
-    else
-        local _suite
-        _suite=$(_deb_suite)
-        _cmd_with_progress "Adding Debian Multimedia repository (${_suite})" 30 \
-            bash -c "
-                cd /tmp
-                wget -q '${DEB_MULTIMEDIA_KEYRING_URL}' -O deb-multimedia-keyring.deb
-                dpkg -i deb-multimedia-keyring.deb
-                rm -f deb-multimedia-keyring.deb
-                echo 'deb http://deb-multimedia.org ${_suite} main non-free' >> /etc/apt/sources.list
-            "
-    fi
+    _ensure_deb_multimedia_repo
 
     # The older per-architecture repos (rivendell-aarch64/-amd64) publish under
     # binary-any/ (non-standard): omitting arch= lets APT discover binary-any/ from
@@ -1651,29 +1676,7 @@ action_build_packages() {
     gum style --foreground "$C_ACCENT" --bold "Step 2 — Build Dependencies"
     echo
 
-    local _suite
-    _suite=$(_deb_suite)
-
-    if grep -rq "deb http://deb-multimedia.org" /etc/apt/sources.list \
-            /etc/apt/sources.list.d/ 2>/dev/null; then
-        if ! grep -rq "deb http://deb-multimedia.org ${_suite}" /etc/apt/sources.list \
-                /etc/apt/sources.list.d/ 2>/dev/null; then
-            msg_warn "deb-multimedia repo is configured for a different suite — updating to ${_suite}."
-            sed -i "s|deb http://deb-multimedia.org [a-z]* main|deb http://deb-multimedia.org ${_suite} main|g" \
-                /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null || true
-        else
-            msg_info "Debian Multimedia repository (${_suite}) already configured."
-        fi
-    else
-        _cmd_with_progress "Adding Debian Multimedia repository (${_suite})" 30 \
-            bash -c "
-                cd /tmp
-                wget -q '${DEB_MULTIMEDIA_KEYRING_URL}' -O deb-multimedia-keyring.deb
-                dpkg -i deb-multimedia-keyring.deb
-                rm -f deb-multimedia-keyring.deb
-                echo 'deb http://deb-multimedia.org ${_suite} main non-free' >> /etc/apt/sources.list
-            "
-    fi
+    _ensure_deb_multimedia_repo
 
     _cmd_with_progress "Updating package lists" 20 apt-get update -q
 
