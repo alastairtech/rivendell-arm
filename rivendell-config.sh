@@ -929,8 +929,7 @@ for s in stanzas:
             dpkg -i "${deb_files[@]}"; then
         msg_warn "dpkg reported errors — attempting dependency resolution..."
     fi
-    gum spin --title "Resolving dependencies..." -- \
-        apt-get install -f -y 2>/dev/null || true
+    _cmd_with_progress "Resolving dependencies" 30 apt-get install -f -y || true
     rm -rf "$tmpdir"
 
     # dpkg/apt-get above can "succeed" (exit 0) while actually leaving rivendell
