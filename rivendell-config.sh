@@ -925,16 +925,24 @@ for s in stanzas:
         return 1
     fi
 
-    if _cmd_with_progress "Installing Rivendell ${version}" 20 \
+    if ! _cmd_with_progress "Installing Rivendell ${version}" 20 \
             dpkg -i "${deb_files[@]}"; then
-        gum spin --title "Resolving dependencies..." -- \
-            apt-get install -f -y 2>/dev/null || true
-        msg_success "Rivendell ${version} installed."
-    else
         msg_warn "dpkg reported errors — attempting dependency resolution..."
-        apt-get install -f -y 2>/dev/null || true
     fi
+    gum spin --title "Resolving dependencies..." -- \
+        apt-get install -f -y 2>/dev/null || true
     rm -rf "$tmpdir"
+
+    # dpkg/apt-get above can "succeed" (exit 0) while actually leaving rivendell
+    # half-configured or removing it outright to resolve a dependency conflict —
+    # check the real package status rather than trusting either exit code.
+    if dpkg-query -W -f='${Status}\n' rivendell 2>/dev/null | grep -q '^install ok installed$'; then
+        msg_success "Rivendell ${version} installed."
+        return 0
+    else
+        msg_error "Rivendell ${version} failed to install — see output above."
+        return 1
+    fi
 }
 
 # ── Package installation helper ──────────────────────────────────────────────
@@ -1516,10 +1524,9 @@ _cmd_with_progress() {
     else
         printf '\r\033[2K  \033[38;2;255;85;85m✗  %s\033[0m  \033[38;2;136;136;136m%s\033[0m\n\n' \
             "$label" "$elapsed_fmt"
-        msg_error "Last 20 lines of output:"
-        tail -20 "$logfile"
+        msg_error "Last 60 lines of output (full log: $logfile):"
+        tail -60 "$logfile"
         echo
-        rm -f "$logfile"
     fi
 
     return "$rc"
