@@ -869,6 +869,21 @@ _rd_repo_versions() {
         | sort -rV
 }
 
+# True if the rivendell package is fully installed and configured (not merely
+# unpacked, half-configured, or removed-with-conffiles-left-behind).
+_rd_pkg_installed() {
+    dpkg-query -W -f='${Status}\n' rivendell 2>/dev/null | grep -q '^install ok installed$'
+}
+
+# List any rivendell* packages dpkg knows about that aren't cleanly installed —
+# e.g. left half-configured, or removed with conffiles still present — from a
+# previous failed attempt. Such packages block *any* apt-get install (not just
+# Rivendell's own) until cleared.
+_rd_broken_pkgs() {
+    dpkg-query -W -f='${Package} ${Status}\n' 'rivendell*' 2>/dev/null \
+        | awk '{ if ($2" "$3" "$4 != "install ok installed") print $1 }'
+}
+
 # Download all rivendell* packages at VERSION and install them with dpkg.
 _rd_repo_install() {
     local version="$1"
@@ -925,17 +940,22 @@ for s in stanzas:
         return 1
     fi
 
-    if ! _cmd_with_progress "Installing Rivendell ${version}" 20 \
-            dpkg -i "${deb_files[@]}"; then
-        msg_warn "dpkg reported errors — attempting dependency resolution..."
+    # Use `apt-get install` (not `dpkg -i`) on the local .deb files: apt resolves
+    # and pulls in missing dependencies (libmagick++, rsyslog, etc.) from the
+    # configured repos in the same transaction, instead of dpkg blindly unpacking
+    # them and leaving the package half-configured for a separate `apt-get -f` to
+    # untangle — which the noninteractive solver can fail to do cleanly.
+    if ! _cmd_with_progress "Installing Rivendell ${version}" 30 \
+            apt-get install -y "${deb_files[@]}"; then
+        msg_warn "apt-get reported errors — attempting dependency resolution..."
+        _cmd_with_progress "Resolving dependencies" 30 apt-get install -f -y || true
     fi
-    _cmd_with_progress "Resolving dependencies" 30 apt-get install -f -y || true
     rm -rf "$tmpdir"
 
     # dpkg/apt-get above can "succeed" (exit 0) while actually leaving rivendell
     # half-configured or removing it outright to resolve a dependency conflict —
     # check the real package status rather than trusting either exit code.
-    if dpkg-query -W -f='${Status}\n' rivendell 2>/dev/null | grep -q '^install ok installed$'; then
+    if _rd_pkg_installed; then
         msg_success "Rivendell ${version} installed."
         return 0
     else
@@ -1169,6 +1189,21 @@ run_installer() {
         msg_info "Will install Rivendell ${_install_version} from repository."
     fi
     echo
+
+    # A previous failed install can leave rivendell* packages half-configured
+    # (or removed with conffiles left behind) in dpkg's database. apt refuses to
+    # touch *anything* while a package is in that state, so every apt-get
+    # install below — even for unrelated build tools — would fail until it's
+    # cleared. Try an automatic repair first; if that can't fix it, purge the
+    # remnants so this run starts from a clean slate.
+    local _broken_pkgs
+    _broken_pkgs=$(_rd_broken_pkgs)
+    if [ -n "$_broken_pkgs" ]; then
+        msg_warn "Found a broken Rivendell package state from a previous attempt — cleaning up..."
+        apt-get install -f -y >/dev/null 2>&1 || true
+        _broken_pkgs=$(_rd_broken_pkgs)
+        [ -n "$_broken_pkgs" ] && { dpkg --purge $_broken_pkgs >/dev/null 2>&1 || true; }
+    fi
 
     _cmd_with_progress "Installing build tools and dependencies" 150 \
         apt-get install -y \
