@@ -1942,6 +1942,19 @@ PYEOF
         fi
     fi
 
+    # Debian removed qtstyleplugins-src (source of the qt5-style-plugins binary)
+    # from testing/unstable in April 2025, ahead of the trixie freeze — it's
+    # absent from trixie's archive entirely and can never be installed there.
+    # A hard Depends on it makes rivendell's postinst never run, which cascades
+    # into dpkg refusing to configure rivendell-select/-webget and auto-removing
+    # all four packages. The plugin only wires Qt5 apps into the host GTK theme
+    # (cosmetic) — Rivendell doesn't need it to function, so on Debian 13 we
+    # just drop the dependency instead of shipping an unsatisfiable one.
+    if $is_deb13 && grep -q ", qt5-style-plugins" debian/control.src 2>/dev/null; then
+        msg_info "Patching debian/control.src: dropping qt5-style-plugins dependency (removed from Debian 13's archive)..."
+        sed -i 's/, qt5-style-plugins//' debian/control.src
+    fi
+
     # debian/rules.src's ./configure call never sets DOCBOOK_STYLESHEETS. configure.ac
     # only creates the helpers/docbook symlink that docs/opsguide (and docs/rivwebcapi,
     # manpages, dtds, apis) depend on for xsltproc/fop when that var is non-empty, so
